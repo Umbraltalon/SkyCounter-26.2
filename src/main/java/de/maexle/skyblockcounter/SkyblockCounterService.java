@@ -15,6 +15,8 @@ import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.core.BlockPos;
+import de.maexle.skyblockcounter.waypoint.WaypointManager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
@@ -73,6 +75,14 @@ public class SkyblockCounterService {
 
     private static final Set<Integer> knownCorleones = new HashSet<>();
 
+    // Key Guardian timer state is kept independently of the HUD, so leaving the
+    // chamber hides the display without pausing or resetting the countdown.
+    private static long keyGuardianDeathTime = 0L;
+    private static long keyGuardianLastSeenTime = 0L;
+    private static BlockPos keyGuardianLastSeenPos = null;
+    private static boolean keyGuardianAliveDetected = false;
+    private static net.minecraft.client.multiplayer.ClientLevel keyGuardianTrackedLevel = null;
+
     public static long sessionStartTime = 0;
 
     private long lastUnloadTrigger = 0;
@@ -110,6 +120,7 @@ public class SkyblockCounterService {
         LOGGER.info("Config geladen: HUD Position (" + hudX + ", " + hudY + "), Mob: " + currentMobName);
 
         registerHudRenderer();
+        registerKeyGuardianHudRenderer();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.level != null) {
@@ -206,6 +217,55 @@ public class SkyblockCounterService {
                     }
                 }
         );
+    }
+
+
+    private void registerKeyGuardianHudRenderer() {
+        HudElementRegistry.addLast(
+                Identifier.fromNamespaceAndPath("skyblockcounter", "key_guardian_respawn_hud"),
+                (drawContext, tickCounter) -> renderKeyGuardianHud(drawContext)
+        );
+    }
+
+    private static boolean isPlayerInsideKeyGuardianChamber(BlockPos playerPos) {
+        for (WaypointManager.Waypoint waypoint : WaypointManager.getWaypoints()) {
+            if (waypoint.label() != null && waypoint.label().startsWith("Key Guardian Chamber")
+                    && playerPos.distSqr(waypoint.pos()) <= 30.0 * 30.0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void renderKeyGuardianHud(GuiGraphicsExtractor drawContext) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null || mc.gui.hud.isHidden()
+                || !isPlayerInsideKeyGuardianChamber(mc.player.blockPosition())) {
+            return;
+        }
+
+        String line;
+        int color;
+        if (keyGuardianAliveDetected && keyGuardianDeathTime == 0L) {
+            line = "KEY GUARDIAN: ALIVE";
+            color = 0xFF55FF55;
+        } else if (keyGuardianDeathTime > 0L) {
+            long remaining = Math.max(0L, 90_000L - (System.currentTimeMillis() - keyGuardianDeathTime));
+            if (remaining == 0L) {
+                line = "KEY GUARDIAN: ALIVE  -  MOVE TO TRIGGER RESPAWN!";
+                color = 0xFFFFD54F;
+            } else {
+                long seconds = (remaining + 999L) / 1000L;
+                line = String.format(java.util.Locale.ROOT, "KEY GUARDIAN RESPAWNS IN %d:%02d",
+                        seconds / 60L, seconds % 60L);
+                color = 0xFFFFFFFF;
+            }
+        } else {
+            return;
+        }
+
+        int x = Math.max(4, (mc.getWindow().getGuiScaledWidth() - mc.font.width(line)) / 2);
+        drawContext.text(mc.font, line, x, 18, color, true);
     }
 
     private void renderHud(GuiGraphicsExtractor drawContext) {
