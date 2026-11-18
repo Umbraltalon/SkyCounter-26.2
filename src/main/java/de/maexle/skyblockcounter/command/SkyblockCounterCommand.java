@@ -92,7 +92,7 @@ public class SkyblockCounterCommand {
     private static int showSkyCounterConfig(CommandContext<FabricClientCommandSource> context) {
         Minecraft client = context.getSource().getClient();
         client.execute(() -> {
-            client.setScreen(new SkyblockCounterConfigScreen(null));
+            client.gui.setScreen(new SkyblockCounterConfigScreen(null));
         });
         return 1;
     }
@@ -123,6 +123,23 @@ public class SkyblockCounterCommand {
         }
 
         SkyblockCounterActions.CorleoneFinderResult result = SkyblockCounterActions.findCorleoneStructures(world, player.getOnPos());
+        for (String message : result.messages()) {
+            sendPrefixMessage(context.getSource(), message);
+        }
+        return result.success() ? 1 : 0;
+    }
+
+
+    private static int keyGuardianFinder(CommandContext<FabricClientCommandSource> context) {
+        var world = context.getSource().getLevel();
+        var player = context.getSource().getPlayer();
+        if (world == null || player == null) {
+            sendPrefixMessage(context.getSource(), "Must be in a world");
+            return 0;
+        }
+
+        SkyblockCounterActions.KeyGuardianFinderResult result =
+                SkyblockCounterActions.findKeyGuardianStructures(world, player.blockPosition());
         for (String message : result.messages()) {
             sendPrefixMessage(context.getSource(), message);
         }

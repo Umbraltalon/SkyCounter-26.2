@@ -39,8 +39,8 @@ public class SkyblockCounterClient implements ClientModInitializer {
                 SkyblockCounterService.setGuiVisible(!currentVisible);
             }
             while (openConfigKey.isDown()) {
-                if (client.screen == null) {
-                    client.setScreen(new SkyblockCounterConfigScreen(null));
+                if (client.gui.screen() == null) {
+                    client.gui.setScreen(new SkyblockCounterConfigScreen(null));
                 }
             }
         });

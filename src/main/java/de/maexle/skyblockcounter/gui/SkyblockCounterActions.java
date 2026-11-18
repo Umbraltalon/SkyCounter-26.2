@@ -9,8 +9,12 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public final class SkyblockCounterActions {
 
@@ -24,6 +28,16 @@ public final class SkyblockCounterActions {
 
         public static CorleoneFinderResult nothingFound() {
             return new CorleoneFinderResult(true, List.of("Neither structure was found in the loaded chunks."));
+        }
+    }
+
+    public record KeyGuardianFinderResult(boolean success, List<String> messages) {
+        public static KeyGuardianFinderResult notInWorld() {
+            return new KeyGuardianFinderResult(false, List.of("Must be in a world"));
+        }
+
+        public static KeyGuardianFinderResult nothingFound() {
+            return new KeyGuardianFinderResult(true, List.of("No Key Guardian towers were found in the scanned chunks."));
         }
     }
 
@@ -254,6 +268,117 @@ public final class SkyblockCounterActions {
         WaypointManager.setWaypoints(foundWaypoints);
 
         return new CorleoneFinderResult(true, messages);
+    }
+
+
+    /**
+     * Searches the currently accessible Crystal Hollows chunks for the two granite
+     * temple variants in which Key Guardians spawn. The structure's granite shell
+     * is used as the marker; small natural granite patches are filtered out by
+     * component size and vertical extent.
+     */
+    public static KeyGuardianFinderResult findKeyGuardianStructures(ClientLevel world, BlockPos playerPos) {
+        if (world == null || playerPos == null) {
+            return KeyGuardianFinderResult.notInWorld();
+        }
+
+        int centerChunkX = playerPos.getX() >> 4;
+        int centerChunkZ = playerPos.getZ() >> 4;
+        int radius = 16;
+        Set<BlockPos> graniteBlocks = new HashSet<>();
+
+        for (int xOffset = -radius; xOffset <= radius; xOffset++) {
+            for (int zOffset = -radius; zOffset <= radius; zOffset++) {
+                int chunkX = centerChunkX + xOffset;
+                int chunkZ = centerChunkZ + zOffset;
+                LevelChunk chunk = world.getChunk(chunkX, chunkZ);
+                if (chunk == null) {
+                    continue;
+                }
+
+                int startX = chunk.getPos().getMinBlockX();
+                int startZ = chunk.getPos().getMinBlockZ();
+                for (int x = 0; x < 16; x++) {
+                    for (int z = 0; z < 16; z++) {
+                        for (int y = world.getMinY() + 3; y < world.getMaxY() - 2; y++) {
+                            BlockPos pos = new BlockPos(startX + x, y, startZ + z);
+                            if (isGraniteStructureBlock(chunk.getBlockState(pos))) {
+                                graniteBlocks.add(pos);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Set<BlockPos> remaining = new HashSet<>(graniteBlocks);
+        List<BlockPos> towerCenters = new ArrayList<>();
+        while (!remaining.isEmpty()) {
+            BlockPos seed = remaining.iterator().next();
+            ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+            List<BlockPos> component = new ArrayList<>();
+            queue.add(seed);
+            remaining.remove(seed);
+
+            int minX = seed.getX(), maxX = seed.getX();
+            int minY = seed.getY(), maxY = seed.getY();
+            int minZ = seed.getZ(), maxZ = seed.getZ();
+            long sumX = 0, sumY = 0, sumZ = 0;
+
+            while (!queue.isEmpty()) {
+                BlockPos current = queue.removeFirst();
+                component.add(current);
+                int x = current.getX(), y = current.getY(), z = current.getZ();
+                minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+                minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+                sumX += x; sumY += y; sumZ += z;
+
+                BlockPos[] neighbours = {
+                        new BlockPos(x + 1, y, z), new BlockPos(x - 1, y, z),
+                        new BlockPos(x, y + 1, z), new BlockPos(x, y - 1, z),
+                        new BlockPos(x, y, z + 1), new BlockPos(x, y, z - 1)
+                };
+                for (BlockPos neighbour : neighbours) {
+                    if (remaining.remove(neighbour)) {
+                        queue.addLast(neighbour);
+                    }
+                }
+            }
+
+            int widthX = maxX - minX + 1;
+            int height = maxY - minY + 1;
+            int widthZ = maxZ - minZ + 1;
+            if (component.size() >= 45 && height >= 8 && widthX <= 22 && widthZ <= 22) {
+                towerCenters.add(new BlockPos(
+                        (int) (sumX / component.size()),
+                        (int) (sumY / component.size()),
+                        (int) (sumZ / component.size())
+                ));
+            }
+        }
+
+        if (towerCenters.isEmpty()) {
+            return KeyGuardianFinderResult.nothingFound();
+        }
+
+        towerCenters.sort(Comparator.comparingInt(BlockPos::getX).thenComparingInt(BlockPos::getZ));
+        List<String> messages = new ArrayList<>();
+        List<WaypointManager.Waypoint> waypoints = new ArrayList<>();
+        int count = Math.min(towerCenters.size(), 2);
+        for (int i = 0; i < count; i++) {
+            BlockPos center = towerCenters.get(i);
+            String label = "Key Guardian Tower " + (i + 1);
+            waypoints.add(new WaypointManager.Waypoint(center, label, 0xFF55DDAA));
+            messages.add(label + " found at: " + center.toShortString());
+        }
+
+        WaypointManager.setWaypoints(waypoints);
+        return new KeyGuardianFinderResult(true, messages);
+    }
+
+    private static boolean isGraniteStructureBlock(net.minecraft.world.level.block.state.BlockState state) {
+        return state.is(Blocks.GRANITE) || state.is(Blocks.POLISHED_GRANITE);
     }
 
     private static BlockPos averagePosition(List<BlockPos> positions) {
