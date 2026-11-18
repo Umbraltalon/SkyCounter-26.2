@@ -618,8 +618,10 @@ public final class SkyblockCounterActions {
 
 
     /**
-     * Finds Odawa's wooden hut using the distinctive brewing-stand, flower-pot,
-     * and lever arrangement, with a surrounding wooden-structure check.
+     * Finds Odawa's hut using the counter-and-roof layout. A brewing stand is
+     * not required: the newer hut variant has a wooden slab counter with an
+     * empty flower pot sitting on it, plus a roof made from green wool,
+     * yellow terracotta, and hay bales.
      */
     public static OdawaFinderResult findOdawaStructures(ClientLevel world, BlockPos playerPos) {
         if (world == null || playerPos == null) {
@@ -631,6 +633,7 @@ public final class SkyblockCounterActions {
         int radius = 16;
         List<BlockPos> hutPositions = new ArrayList<>();
 
+        // Flower pots are a much rarer and more useful anchor than generic wood.
         for (int xOffset = -radius; xOffset <= radius; xOffset++) {
             for (int zOffset = -radius; zOffset <= radius; zOffset++) {
                 LevelChunk chunk = world.getChunk(centerChunkX + xOffset, centerChunkZ + zOffset);
@@ -643,60 +646,54 @@ public final class SkyblockCounterActions {
                 for (int x = 0; x < 16; x++) {
                     for (int z = 0; z < 16; z++) {
                         for (int y = world.getMinY(); y < world.getMaxY(); y++) {
-                            BlockPos brewingStand = new BlockPos(startX + x, y, startZ + z);
-                            if (!chunk.getBlockState(brewingStand).is(Blocks.BREWING_STAND)) {
+                            BlockPos pot = new BlockPos(startX + x, y, startZ + z);
+                            if (!chunk.getBlockState(pot).is(Blocks.FLOWER_POT)
+                                    || !isWoodenSlab(world.getBlockState(pot.below()))) {
                                 continue;
                             }
 
-                            BlockPos flowerPot = null;
-                            BlockPos lever = null;
-                            for (int dx = -10; dx <= 10; dx++) {
-                                for (int dz = -10; dz <= 10; dz++) {
-                                    for (int dy = -4; dy <= 4; dy++) {
-                                        BlockPos nearby = brewingStand.offset(dx, dy, dz);
-                                        var state = world.getBlockState(nearby);
-                                        if (state.is(Blocks.FLOWER_POT)) {
-                                            flowerPot = nearby;
-                                        } else if (state.is(Blocks.LEVER)) {
-                                            lever = nearby;
+                            // The counter should contain several wooden slabs near the pot.
+                            int counterSlabs = 0;
+                            for (int dx = -5; dx <= 5; dx++) {
+                                for (int dz = -3; dz <= 3; dz++) {
+                                    for (int dy = -2; dy <= 1; dy++) {
+                                        if (isWoodenSlab(world.getBlockState(pot.offset(dx, dy, dz)))) {
+                                            counterSlabs++;
+                                        }
+                                    }
+                                }
+                            }
+                            if (counterSlabs < 4) {
+                                continue;
+                            }
+
+                            // Check the roof volume above and around the counter.
+                            int greenWool = 0;
+                            int yellowTerracotta = 0;
+                            int hayBales = 0;
+                            for (int dx = -8; dx <= 8; dx++) {
+                                for (int dz = -8; dz <= 8; dz++) {
+                                    for (int dy = 2; dy <= 11; dy++) {
+                                        var roofState = world.getBlockState(pot.offset(dx, dy, dz));
+                                        String blockName = BuiltInRegistries.BLOCK
+                                                .getKey(roofState.getBlock()).getPath();
+                                        if (blockName.equals("green_wool") || blockName.equals("lime_wool")) {
+                                            greenWool++;
+                                        } else if (blockName.equals("yellow_terracotta")) {
+                                            yellowTerracotta++;
+                                        } else if (blockName.equals("hay_block")) {
+                                            hayBales++;
                                         }
                                     }
                                 }
                             }
 
-                            if (flowerPot == null || lever == null) {
+                            // Require all three reported roof materials to avoid generic hut matches.
+                            if (greenWool < 2 || yellowTerracotta < 2 || hayBales < 2) {
                                 continue;
                             }
 
-                            int potDistance = Math.abs(flowerPot.getX() - brewingStand.getX())
-                                    + Math.abs(flowerPot.getZ() - brewingStand.getZ());
-                            int leverDistance = Math.abs(lever.getX() - brewingStand.getX())
-                                    + Math.abs(lever.getZ() - brewingStand.getZ());
-                            if (potDistance < 2 || potDistance > 12 || leverDistance < 2 || leverDistance > 14
-                                    || Math.abs(flowerPot.getY() - brewingStand.getY()) > 4
-                                    || Math.abs(lever.getY() - brewingStand.getY()) > 4) {
-                                continue;
-                            }
-
-                            int woodenBlocks = 0;
-                            for (int dx = -7; dx <= 7; dx++) {
-                                for (int dz = -7; dz <= 7; dz++) {
-                                    for (int dy = -4; dy <= 5; dy++) {
-                                        var nearbyState = world.getBlockState(brewingStand.offset(dx, dy, dz));
-                                        String blockName = BuiltInRegistries.BLOCK.getKey(nearbyState.getBlock()).getPath();
-                                        if (blockName.contains("planks") || blockName.contains("log")
-                                                || blockName.contains("wood") || blockName.contains("stairs")
-                                                || blockName.contains("slab") || blockName.contains("fence")
-                                                || blockName.contains("trapdoor")) {
-                                            woodenBlocks++;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (woodenBlocks >= 25) {
-                                hutPositions.add(brewingStand);
-                            }
+                            hutPositions.add(pot);
                         }
                     }
                 }
@@ -731,6 +728,20 @@ public final class SkyblockCounterActions {
 
         WaypointManager.setWaypoints(waypoints);
         return new OdawaFinderResult(true, messages);
+    }
+
+    private static boolean isWoodenSlab(net.minecraft.world.level.block.state.BlockState state) {
+        String name = BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
+        return name.endsWith("_slab")
+                && !name.contains("stone")
+                && !name.contains("brick")
+                && !name.contains("cobble")
+                && !name.contains("deepslate")
+                && !name.contains("blackstone")
+                && !name.contains("purpur")
+                && !name.contains("quartz")
+                && !name.contains("prismarine")
+                && !name.contains("copper");
     }
 
     private static boolean isGraniteStructureBlock(net.minecraft.world.level.block.state.BlockState state) {
