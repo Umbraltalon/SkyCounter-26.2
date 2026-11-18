@@ -385,7 +385,7 @@ public final class SkyblockCounterActions {
         }
 
         if (candidates.isEmpty()) return GoldenDragonFinderResult.nothingFound();
-        candidates.sort(Comparator.comparingLong(pos -> pos.distSqr(playerPos)));
+        candidates.sort(Comparator.comparingDouble(pos -> pos.distSqr(playerPos)));
         BlockPos center = candidates.get(0);
         WaypointManager.setWaypoints(List.of(new WaypointManager.Waypoint(center, "Golden Dragon Room", 0xFFFFAA00)));
         return new GoldenDragonFinderResult(true, List.of("Golden Dragon room candidate found at: " + center.toShortString()));
