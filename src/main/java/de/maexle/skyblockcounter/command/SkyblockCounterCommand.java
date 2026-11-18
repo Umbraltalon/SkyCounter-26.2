@@ -28,7 +28,9 @@ public class SkyblockCounterCommand {
                         .executes(SkyblockCounterCommand::corleoneFinder))
                 .then(literal("keyguardian_finder")
                         .executes(SkyblockCounterCommand::keyGuardianFinder))
-                .then(literal("treasure_hoarder")
+                                .then(literal("odawa_finder")
+                        .executes(SkyblockCounterCommand::odawaFinder))
+.then(literal("treasure_hoarder")
                         .executes(SkyblockCounterCommand::switchToTreasureHoarder))
                 .then(literal("corleone")
                         .executes(SkyblockCounterCommand::switchToCorleoniteBoss))
@@ -142,6 +144,22 @@ public class SkyblockCounterCommand {
 
         SkyblockCounterActions.KeyGuardianFinderResult result =
                 SkyblockCounterActions.findKeyGuardianStructures(world, player.blockPosition());
+        for (String message : result.messages()) {
+            sendPrefixMessage(context.getSource(), message);
+        }
+        return result.success() ? 1 : 0;
+    }
+
+    private static int odawaFinder(CommandContext<FabricClientCommandSource> context) {
+        var world = context.getSource().getLevel();
+        var player = context.getSource().getPlayer();
+        if (world == null || player == null) {
+            sendPrefixMessage(context.getSource(), "Must be in a world");
+            return 0;
+        }
+
+        SkyblockCounterActions.OdawaFinderResult result =
+                SkyblockCounterActions.findOdawaStructures(world, player.blockPosition());
         for (String message : result.messages()) {
             sendPrefixMessage(context.getSource(), message);
         }
