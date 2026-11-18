@@ -134,7 +134,7 @@ public class SkyblockCounterService {
             if (client.level != null && client.player != null) {
                 Entity guardian = null;
                 for (Entity entity : client.level.entitiesForRendering()) {
-                    if (entity.getCustomName() != null
+                    if (entity.isAlive() && entity.getCustomName() != null
                             && entity.getCustomName().getString().toLowerCase(java.util.Locale.ROOT).contains("key guardian")) {
                         guardian = entity;
                         break;
@@ -150,9 +150,9 @@ public class SkyblockCounterService {
                 } else if (keyGuardianLastSeenTime > 0L && keyGuardianLastSeenPos != null
                         && isPlayerInsideKeyGuardianChamber(client.player.blockPosition())
                         && client.player.blockPosition().distSqr(keyGuardianLastSeenPos) <= 32.0 * 32.0
-                        && now - keyGuardianLastSeenTime >= 1500L
+                        && now - keyGuardianLastSeenTime >= 300L
                         && keyGuardianDeathTime == 0L) {
-                    keyGuardianDeathTime = keyGuardianLastSeenTime;
+                    keyGuardianDeathTime = now;
                     keyGuardianAliveDetected = false;
                     LOGGER.info("Key Guardian disappeared inside its chamber; starting 90-second respawn timer.");
                 }
