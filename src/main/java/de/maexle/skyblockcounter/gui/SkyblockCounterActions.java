@@ -46,6 +46,15 @@ public final class SkyblockCounterActions {
     }
 
 
+    public record GoldenDragonFinderResult(boolean success, List<String> messages) {
+        public static GoldenDragonFinderResult notInWorld() {
+            return new GoldenDragonFinderResult(false, List.of("Must be in a world"));
+        }
+        public static GoldenDragonFinderResult nothingFound() {
+            return new GoldenDragonFinderResult(true, List.of("No Golden Dragon room candidate found in the scanned chunks."));
+        }
+    }
+
     public record OdawaFinderResult(boolean success, List<String> messages) {
         public static OdawaFinderResult notInWorld() {
             return new OdawaFinderResult(false, List.of("Must be in a world"));
@@ -285,6 +294,113 @@ public final class SkyblockCounterActions {
         return new CorleoneFinderResult(true, messages);
     }
 
+
+
+    /**
+     * Finds the Golden Dragon lair by looking for a large connected red statue
+     * (redstone blocks, red wool and red terracotta), sandstone details inside
+     * its footprint, and nearby gold blocks. Gold is deliberately a supporting
+     * signal rather than a fixed platform requirement.
+     */
+    public static GoldenDragonFinderResult findGoldenDragonRoom(ClientLevel world, BlockPos playerPos) {
+        if (world == null || playerPos == null) return GoldenDragonFinderResult.notInWorld();
+
+        int centerChunkX = playerPos.getX() >> 4;
+        int centerChunkZ = playerPos.getZ() >> 4;
+        int radius = 10;
+        Set<BlockPos> redBlocks = new HashSet<>();
+
+        for (int cx = -radius; cx <= radius; cx++) {
+            for (int cz = -radius; cz <= radius; cz++) {
+                LevelChunk chunk = world.getChunk(centerChunkX + cx, centerChunkZ + cz);
+                if (chunk == null) continue;
+                int startX = chunk.getPos().getMinBlockX();
+                int startZ = chunk.getPos().getMinBlockZ();
+                for (int x = 0; x < 16; x++) {
+                    for (int z = 0; z < 16; z++) {
+                        for (int y = world.getMinY() + 3; y < world.getMaxY() - 2; y++) {
+                            BlockPos pos = new BlockPos(startX + x, y, startZ + z);
+                            if (isGoldenDragonRedBlock(chunk.getBlockState(pos))) redBlocks.add(pos);
+                        }
+                    }
+                }
+            }
+        }
+
+        Set<BlockPos> unvisited = new HashSet<>(redBlocks);
+        List<BlockPos> candidates = new ArrayList<>();
+        while (!unvisited.isEmpty()) {
+            BlockPos seed = unvisited.iterator().next();
+            ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+            queue.add(seed);
+            unvisited.remove(seed);
+            int count = 0;
+            int minX = seed.getX(), maxX = minX, minY = seed.getY(), maxY = minY;
+            int minZ = seed.getZ(), maxZ = minZ;
+            long sumX = 0, sumY = 0, sumZ = 0;
+
+            while (!queue.isEmpty()) {
+                BlockPos pos = queue.removeFirst();
+                count++;
+                minX = Math.min(minX, pos.getX()); maxX = Math.max(maxX, pos.getX());
+                minY = Math.min(minY, pos.getY()); maxY = Math.max(maxY, pos.getY());
+                minZ = Math.min(minZ, pos.getZ()); maxZ = Math.max(maxZ, pos.getZ());
+                sumX += pos.getX(); sumY += pos.getY(); sumZ += pos.getZ();
+                for (DirectionOffset direction : DirectionOffset.values()) {
+                    BlockPos neighbour = pos.offset(direction.dx, direction.dy, direction.dz);
+                    if (unvisited.remove(neighbour)) queue.addLast(neighbour);
+                }
+            }
+
+            int width = maxX - minX + 1;
+            int height = maxY - minY + 1;
+            int depth = maxZ - minZ + 1;
+            if (count < 100 || width < 9 || height < 5 || depth < 7) continue;
+
+            // Require the lighter sandstone details to be embedded in/near the statue.
+            int sandstone = 0;
+            for (int x = minX - 1; x <= maxX + 1; x++) {
+                for (int z = minZ - 1; z <= maxZ + 1; z++) {
+                    for (int y = minY - 1; y <= maxY + 1; y++) {
+                        String name = BuiltInRegistries.BLOCK.getKey(world.getBlockState(new BlockPos(x, y, z)).getBlock()).getPath();
+                        if (name.contains("sandstone")) sandstone++;
+                    }
+                }
+            }
+            if (sandstone < 5) continue;
+
+            // Gold may be under, beside, or scattered around the dragon.
+            int gold = 0;
+            BlockPos goldCenter = new BlockPos((minX + maxX) / 2, minY, (minZ + maxZ) / 2);
+            for (int x = minX - 8; x <= maxX + 8; x++) {
+                for (int z = minZ - 8; z <= maxZ + 8; z++) {
+                    for (int y = minY - 5; y <= minY + 5; y++) {
+                        if (world.getBlockState(new BlockPos(x, y, z)).is(Blocks.GOLD_BLOCK)) gold++;
+                    }
+                }
+            }
+            if (gold < 8) continue;
+
+            candidates.add(new BlockPos((int)(sumX / count), (int)(sumY / count), (int)(sumZ / count)));
+        }
+
+        if (candidates.isEmpty()) return GoldenDragonFinderResult.nothingFound();
+        candidates.sort(Comparator.comparingLong(pos -> pos.distSqr(playerPos)));
+        BlockPos center = candidates.get(0);
+        WaypointManager.setWaypoints(List.of(new WaypointManager.Waypoint(center, "Golden Dragon Room", 0xFFFFAA00)));
+        return new GoldenDragonFinderResult(true, List.of("Golden Dragon room candidate found at: " + center.toShortString()));
+    }
+
+    private enum DirectionOffset {
+        UP(0, 1, 0), DOWN(0, -1, 0), NORTH(0, 0, -1), SOUTH(0, 0, 1), EAST(1, 0, 0), WEST(-1, 0, 0);
+        final int dx, dy, dz;
+        DirectionOffset(int dx, int dy, int dz) { this.dx = dx; this.dy = dy; this.dz = dz; }
+    }
+
+    private static boolean isGoldenDragonRedBlock(net.minecraft.world.level.block.state.BlockState state) {
+        String name = BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
+        return name.equals("redstone_block") || name.equals("red_wool") || name.equals("red_terracotta");
+    }
 
     /**
      * Looks for the Key Guardian chamber using the reference screenshots:
