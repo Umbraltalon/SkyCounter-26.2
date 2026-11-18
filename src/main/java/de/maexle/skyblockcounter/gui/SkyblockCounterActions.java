@@ -4,6 +4,8 @@ import de.maexle.skyblockcounter.SkyblockCounterConfig;
 import de.maexle.skyblockcounter.SkyblockCounterService;
 import de.maexle.skyblockcounter.waypoint.WaypointManager;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -230,7 +232,7 @@ public final class SkyblockCounterActions {
                                 BlockPos[] step2Dirs = {basePos.north(2), basePos.south(2), basePos.east(2), basePos.west(2)};
 
                                 for (int i = 0; i < 4; i++) {
-                                    if (world.getBlockState(step1Dirs[i].above()).is(Blocks.LIGHT_GRAY_TERRACOTTA)
+                                    if (world.getBlockState(step1Dirs[i].above()).is(BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace("light_gray_terracotta")))
                                             && world.getBlockState(step2Dirs[i].above(2)).is(Blocks.STONE_BRICKS)) {
                                         granitePositions.add(basePos);
                                         break;
@@ -362,7 +364,7 @@ public final class SkyblockCounterActions {
             return KeyGuardianFinderResult.nothingFound();
         }
 
-        towerCenters.sort(Comparator.comparingInt(BlockPos::getX).thenComparingInt(BlockPos::getZ));
+        towerCenters.sort(Comparator.comparingInt((BlockPos pos) -> pos.getX()).thenComparingInt(pos -> pos.getZ()));
         List<String> messages = new ArrayList<>();
         List<WaypointManager.Waypoint> waypoints = new ArrayList<>();
         int count = Math.min(towerCenters.size(), 2);

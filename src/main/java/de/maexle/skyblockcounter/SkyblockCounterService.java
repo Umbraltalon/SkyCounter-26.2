@@ -223,7 +223,7 @@ public class SkyblockCounterService {
 
         Minecraft mc = Minecraft.getInstance();
 
-        if (mc.player == null || mc.level == null || mc.options.hideGui) {
+        if (mc.player == null || mc.level == null || mc.gui.hud.isHidden()) {
             return;
         }
 
