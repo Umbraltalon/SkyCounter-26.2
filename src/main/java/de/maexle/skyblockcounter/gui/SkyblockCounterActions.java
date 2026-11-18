@@ -43,6 +43,17 @@ public final class SkyblockCounterActions {
         }
     }
 
+
+    public record OdawaFinderResult(boolean success, List<String> messages) {
+        public static OdawaFinderResult notInWorld() {
+            return new OdawaFinderResult(false, List.of("Must be in a world"));
+        }
+
+        public static OdawaFinderResult nothingFound() {
+            return new OdawaFinderResult(true, List.of("No Odawa huts were found in the scanned chunks."));
+        }
+    }
+
     public record MobSwitchResult(boolean success, String message) {
     }
 
@@ -377,6 +388,123 @@ public final class SkyblockCounterActions {
 
         WaypointManager.setWaypoints(waypoints);
         return new KeyGuardianFinderResult(true, messages);
+    }
+
+
+    /**
+     * Finds Odawa's wooden hut using the distinctive brewing-stand, flower-pot,
+     * and lever arrangement, with a surrounding wooden-structure check.
+     */
+    public static OdawaFinderResult findOdawaStructures(ClientLevel world, BlockPos playerPos) {
+        if (world == null || playerPos == null) {
+            return OdawaFinderResult.notInWorld();
+        }
+
+        int centerChunkX = playerPos.getX() >> 4;
+        int centerChunkZ = playerPos.getZ() >> 4;
+        int radius = 16;
+        List<BlockPos> hutPositions = new ArrayList<>();
+
+        for (int xOffset = -radius; xOffset <= radius; xOffset++) {
+            for (int zOffset = -radius; zOffset <= radius; zOffset++) {
+                LevelChunk chunk = world.getChunk(centerChunkX + xOffset, centerChunkZ + zOffset);
+                if (chunk == null) {
+                    continue;
+                }
+
+                int startX = chunk.getPos().getMinBlockX();
+                int startZ = chunk.getPos().getMinBlockZ();
+                for (int x = 0; x < 16; x++) {
+                    for (int z = 0; z < 16; z++) {
+                        for (int y = world.getMinY(); y < world.getMaxY(); y++) {
+                            BlockPos brewingStand = new BlockPos(startX + x, y, startZ + z);
+                            if (!chunk.getBlockState(brewingStand).is(Blocks.BREWING_STAND)) {
+                                continue;
+                            }
+
+                            BlockPos flowerPot = null;
+                            BlockPos lever = null;
+                            for (int dx = -10; dx <= 10; dx++) {
+                                for (int dz = -10; dz <= 10; dz++) {
+                                    for (int dy = -4; dy <= 4; dy++) {
+                                        BlockPos nearby = brewingStand.offset(dx, dy, dz);
+                                        var state = world.getBlockState(nearby);
+                                        if (state.is(Blocks.FLOWER_POT)) {
+                                            flowerPot = nearby;
+                                        } else if (state.is(Blocks.LEVER)) {
+                                            lever = nearby;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (flowerPot == null || lever == null) {
+                                continue;
+                            }
+
+                            int potDistance = Math.abs(flowerPot.getX() - brewingStand.getX())
+                                    + Math.abs(flowerPot.getZ() - brewingStand.getZ());
+                            int leverDistance = Math.abs(lever.getX() - brewingStand.getX())
+                                    + Math.abs(lever.getZ() - brewingStand.getZ());
+                            if (potDistance < 2 || potDistance > 12 || leverDistance < 2 || leverDistance > 14
+                                    || Math.abs(flowerPot.getY() - brewingStand.getY()) > 4
+                                    || Math.abs(lever.getY() - brewingStand.getY()) > 4) {
+                                continue;
+                            }
+
+                            int woodenBlocks = 0;
+                            for (int dx = -7; dx <= 7; dx++) {
+                                for (int dz = -7; dz <= 7; dz++) {
+                                    for (int dy = -4; dy <= 5; dy++) {
+                                        var nearbyState = world.getBlockState(brewingStand.offset(dx, dy, dz));
+                                        String blockName = BuiltInRegistries.BLOCK.getKey(nearbyState.getBlock()).getPath();
+                                        if (blockName.contains("planks") || blockName.contains("log")
+                                                || blockName.contains("wood") || blockName.contains("stairs")
+                                                || blockName.contains("slab") || blockName.contains("fence")
+                                                || blockName.contains("trapdoor")) {
+                                            woodenBlocks++;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (woodenBlocks >= 25) {
+                                hutPositions.add(brewingStand);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (hutPositions.isEmpty()) {
+            return OdawaFinderResult.nothingFound();
+        }
+
+        List<WaypointManager.Waypoint> waypoints = new ArrayList<>();
+        List<String> messages = new ArrayList<>();
+        int count = 0;
+        for (BlockPos hut : hutPositions) {
+            boolean duplicate = hutPositions.stream().anyMatch(other ->
+                    other != hut && Math.abs(other.getX() - hut.getX()) <= 8
+                            && Math.abs(other.getY() - hut.getY()) <= 5
+                            && Math.abs(other.getZ() - hut.getZ()) <= 8
+                            && other.asLong() < hut.asLong());
+            if (duplicate) {
+                continue;
+            }
+            count++;
+            String label = "Odawa Hut " + count;
+            waypoints.add(new WaypointManager.Waypoint(hut, label, 0xFFFFCC55));
+            messages.add(label + " found at: " + hut.toShortString());
+        }
+
+        if (waypoints.isEmpty()) {
+            return OdawaFinderResult.nothingFound();
+        }
+
+        WaypointManager.setWaypoints(waypoints);
+        return new OdawaFinderResult(true, messages);
     }
 
     private static boolean isGraniteStructureBlock(net.minecraft.world.level.block.state.BlockState state) {
