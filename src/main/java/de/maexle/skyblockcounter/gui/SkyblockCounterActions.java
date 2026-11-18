@@ -589,6 +589,7 @@ public final class SkyblockCounterActions {
             messages.add(label + " candidate found at: " + center.toShortString());
         }
 
+        SkyblockCounterService.setKeyGuardianChambers(chamberCenters);
         WaypointManager.setWaypoints(waypoints);
         return new KeyGuardianFinderResult(true, messages);
     }
