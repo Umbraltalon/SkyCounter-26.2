@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -285,10 +287,11 @@ public final class SkyblockCounterActions {
 
 
     /**
-     * Searches the currently accessible Crystal Hollows chunks for the two granite
-     * temple variants in which Key Guardians spawn. The structure's granite shell
-     * is used as the marker; small natural granite patches are filtered out by
-     * component size and vertical extent.
+     * Looks for the Key Guardian chamber using the reference screenshots:
+     * several tall granite pillars arranged around a broad stone-floored room.
+     * Pillar footprints are grouped first, then nearby pillars are grouped into
+     * a chamber candidate. This avoids treating a pair of unrelated towers as
+     * a valid spawn structure.
      */
     public static KeyGuardianFinderResult findKeyGuardianStructures(ClientLevel world, BlockPos playerPos) {
         if (world == null || playerPos == null) {
@@ -298,13 +301,12 @@ public final class SkyblockCounterActions {
         int centerChunkX = playerPos.getX() >> 4;
         int centerChunkZ = playerPos.getZ() >> 4;
         int radius = 16;
-        Set<BlockPos> graniteBlocks = new HashSet<>();
 
+        // For each horizontal column, record the vertical granite extent and count.
+        Map<Long, int[]> columns = new HashMap<>();
         for (int xOffset = -radius; xOffset <= radius; xOffset++) {
             for (int zOffset = -radius; zOffset <= radius; zOffset++) {
-                int chunkX = centerChunkX + xOffset;
-                int chunkZ = centerChunkZ + zOffset;
-                LevelChunk chunk = world.getChunk(chunkX, chunkZ);
+                LevelChunk chunk = world.getChunk(centerChunkX + xOffset, centerChunkZ + zOffset);
                 if (chunk == null) {
                     continue;
                 }
@@ -313,81 +315,188 @@ public final class SkyblockCounterActions {
                 int startZ = chunk.getPos().getMinBlockZ();
                 for (int x = 0; x < 16; x++) {
                     for (int z = 0; z < 16; z++) {
+                        int blockX = startX + x;
+                        int blockZ = startZ + z;
+                        int count = 0;
+                        int minY = Integer.MAX_VALUE;
+                        int maxY = Integer.MIN_VALUE;
+
                         for (int y = world.getMinY() + 3; y < world.getMaxY() - 2; y++) {
-                            BlockPos pos = new BlockPos(startX + x, y, startZ + z);
-                            if (isGraniteStructureBlock(chunk.getBlockState(pos))) {
-                                graniteBlocks.add(pos);
+                            if (isGraniteStructureBlock(chunk.getBlockState(new BlockPos(blockX, y, blockZ)))) {
+                                count++;
+                                minY = Math.min(minY, y);
+                                maxY = Math.max(maxY, y);
                             }
+                        }
+
+                        if (count >= 8 && maxY - minY >= 7) {
+                            columns.put(columnKey(blockX, blockZ), new int[]{minY, maxY, count});
                         }
                     }
                 }
             }
         }
 
-        Set<BlockPos> remaining = new HashSet<>(graniteBlocks);
-        List<BlockPos> towerCenters = new ArrayList<>();
-        while (!remaining.isEmpty()) {
-            BlockPos seed = remaining.iterator().next();
-            ArrayDeque<BlockPos> queue = new ArrayDeque<>();
-            List<BlockPos> component = new ArrayList<>();
+        // Merge adjacent vertical columns into individual pillar footprints.
+        Set<Long> unvisited = new HashSet<>(columns.keySet());
+        List<BlockPos> pillars = new ArrayList<>();
+        while (!unvisited.isEmpty()) {
+            long seed = unvisited.iterator().next();
+            ArrayDeque<Long> queue = new ArrayDeque<>();
             queue.add(seed);
-            remaining.remove(seed);
+            unvisited.remove(seed);
 
-            int minX = seed.getX(), maxX = seed.getX();
-            int minY = seed.getY(), maxY = seed.getY();
-            int minZ = seed.getZ(), maxZ = seed.getZ();
-            long sumX = 0, sumY = 0, sumZ = 0;
+            int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
+            int minZ = Integer.MAX_VALUE, maxZ = Integer.MIN_VALUE;
+            int baseYTotal = 0;
+            int members = 0;
 
             while (!queue.isEmpty()) {
-                BlockPos current = queue.removeFirst();
-                component.add(current);
-                int x = current.getX(), y = current.getY(), z = current.getZ();
-                minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-                minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-                minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
-                sumX += x; sumY += y; sumZ += z;
+                long key = queue.removeFirst();
+                int x = columnX(key);
+                int z = columnZ(key);
+                int[] info = columns.get(key);
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minZ = Math.min(minZ, z);
+                maxZ = Math.max(maxZ, z);
+                baseYTotal += info[0];
+                members++;
 
-                BlockPos[] neighbours = {
-                        new BlockPos(x + 1, y, z), new BlockPos(x - 1, y, z),
-                        new BlockPos(x, y + 1, z), new BlockPos(x, y - 1, z),
-                        new BlockPos(x, y, z + 1), new BlockPos(x, y, z - 1)
-                };
-                for (BlockPos neighbour : neighbours) {
-                    if (remaining.remove(neighbour)) {
-                        queue.addLast(neighbour);
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        if (dx == 0 && dz == 0) continue;
+                        long neighbour = columnKey(x + dx, z + dz);
+                        if (unvisited.remove(neighbour)) {
+                            queue.addLast(neighbour);
+                        }
                     }
                 }
             }
 
-            int widthX = maxX - minX + 1;
-            int height = maxY - minY + 1;
-            int widthZ = maxZ - minZ + 1;
-            if (component.size() >= 45 && height >= 8 && widthX <= 22 && widthZ <= 22) {
-                towerCenters.add(new BlockPos(
-                        (int) (sumX / component.size()),
-                        (int) (sumY / component.size()),
-                        (int) (sumZ / component.size())
-                ));
+            // A pillar may be several blocks thick, but should not be a long wall.
+            if (maxX - minX <= 4 && maxZ - minZ <= 4) {
+                pillars.add(new BlockPos((minX + maxX) / 2, baseYTotal / members, (minZ + maxZ) / 2));
             }
         }
 
-        if (towerCenters.isEmpty()) {
+        // Group pillars belonging to the same room.
+        List<BlockPos> chamberCenters = new ArrayList<>();
+        Set<Integer> remaining = new HashSet<>();
+        for (int i = 0; i < pillars.size(); i++) remaining.add(i);
+
+        while (!remaining.isEmpty()) {
+            int seed = remaining.iterator().next();
+            ArrayDeque<Integer> queue = new ArrayDeque<>();
+            List<BlockPos> group = new ArrayList<>();
+            queue.add(seed);
+            remaining.remove(seed);
+
+            while (!queue.isEmpty()) {
+                BlockPos current = pillars.get(queue.removeFirst());
+                group.add(current);
+                List<Integer> newlyFound = new ArrayList<>();
+                for (int index : remaining) {
+                    BlockPos other = pillars.get(index);
+                    int dx = current.getX() - other.getX();
+                    int dz = current.getZ() - other.getZ();
+                    if (dx * dx + dz * dz <= 26 * 26
+                            && Math.abs(current.getY() - other.getY()) <= 6) {
+                        newlyFound.add(index);
+                    }
+                }
+                for (int index : newlyFound) {
+                    remaining.remove(index);
+                    queue.addLast(index);
+                }
+            }
+
+            if (group.size() < 4) {
+                continue;
+            }
+
+            int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
+            int minZ = Integer.MAX_VALUE, maxZ = Integer.MIN_VALUE;
+            long sumX = 0, sumY = 0, sumZ = 0;
+            for (BlockPos pillar : group) {
+                minX = Math.min(minX, pillar.getX());
+                maxX = Math.max(maxX, pillar.getX());
+                minZ = Math.min(minZ, pillar.getZ());
+                maxZ = Math.max(maxZ, pillar.getZ());
+                sumX += pillar.getX();
+                sumY += pillar.getY();
+                sumZ += pillar.getZ();
+            }
+
+            // Require pillars spread in both horizontal directions, not just a pair.
+            if (maxX - minX < 7 || maxZ - minZ < 7
+                    || maxX - minX > 34 || maxZ - minZ > 34) {
+                continue;
+            }
+
+            BlockPos center = new BlockPos(
+                    (int) (sumX / group.size()),
+                    (int) (sumY / group.size()),
+                    (int) (sumZ / group.size())
+            );
+
+            // The reference chamber has a substantial stone/cobblestone floor.
+            int floorBlocks = 0;
+            for (int dx = -8; dx <= 8; dx++) {
+                for (int dz = -8; dz <= 8; dz++) {
+                    for (int dy = -2; dy <= 1; dy++) {
+                        if (isKeyGuardianFloorBlock(world.getBlockState(center.offset(dx, dy, dz)))) {
+                            floorBlocks++;
+                        }
+                    }
+                }
+            }
+
+            if (floorBlocks >= 35) {
+                chamberCenters.add(center);
+            }
+        }
+
+        if (chamberCenters.isEmpty()) {
             return KeyGuardianFinderResult.nothingFound();
         }
 
-        towerCenters.sort(Comparator.comparingInt((BlockPos pos) -> pos.getX()).thenComparingInt(pos -> pos.getZ()));
+        chamberCenters.sort(Comparator.comparingInt((BlockPos pos) -> pos.getX())
+                .thenComparingInt(pos -> pos.getZ()));
         List<String> messages = new ArrayList<>();
         List<WaypointManager.Waypoint> waypoints = new ArrayList<>();
-        int count = Math.min(towerCenters.size(), 2);
+        int count = Math.min(chamberCenters.size(), 3);
         for (int i = 0; i < count; i++) {
-            BlockPos center = towerCenters.get(i);
-            String label = "Key Guardian Tower " + (i + 1);
+            BlockPos center = chamberCenters.get(i);
+            String label = "Key Guardian Chamber " + (i + 1);
             waypoints.add(new WaypointManager.Waypoint(center, label, 0xFF55DDAA));
-            messages.add(label + " found at: " + center.toShortString());
+            messages.add(label + " candidate found at: " + center.toShortString());
         }
 
         WaypointManager.setWaypoints(waypoints);
         return new KeyGuardianFinderResult(true, messages);
+    }
+
+    private static long columnKey(int x, int z) {
+        return ((long) x << 32) ^ (z & 0xffffffffL);
+    }
+
+    private static int columnX(long key) {
+        return (int) (key >> 32);
+    }
+
+    private static int columnZ(long key) {
+        return (int) key;
+    }
+
+    private static boolean isKeyGuardianFloorBlock(net.minecraft.world.level.block.state.BlockState state) {
+        return state.is(Blocks.STONE_BRICKS)
+                || state.is(Blocks.MOSSY_STONE_BRICKS)
+                || state.is(Blocks.CRACKED_STONE_BRICKS)
+                || state.is(Blocks.COBBLESTONE)
+                || state.is(Blocks.MOSSY_COBBLESTONE)
+                || state.is(Blocks.STONE)
+                || state.is(Blocks.POLISHED_ANDESITE);
     }
 
 
