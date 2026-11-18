@@ -28,6 +28,8 @@ public class SkyblockCounterCommand {
                         .executes(SkyblockCounterCommand::corleoneFinder))
                 .then(literal("keyguardian_finder")
                         .executes(SkyblockCounterCommand::keyGuardianFinder))
+                .then(literal("gdrag_finder")
+                        .executes(SkyblockCounterCommand::goldenDragonFinder))
                 .then(literal("odawa_finder")
                         .executes(SkyblockCounterCommand::odawaFinder))
                 .then(literal("treasure_hoarder")
@@ -133,6 +135,23 @@ public class SkyblockCounterCommand {
         return result.success() ? 1 : 0;
     }
 
+
+
+    private static int goldenDragonFinder(CommandContext<FabricClientCommandSource> context) {
+        var world = context.getSource().getLevel();
+        var player = context.getSource().getPlayer();
+        if (world == null || player == null) {
+            sendPrefixMessage(context.getSource(), "Must be in a world");
+            return 0;
+        }
+
+        SkyblockCounterActions.GoldenDragonFinderResult result =
+                SkyblockCounterActions.findGoldenDragonRoom(world, player.blockPosition());
+        for (String message : result.messages()) {
+            sendPrefixMessage(context.getSource(), message);
+        }
+        return result.success() ? 1 : 0;
+    }
 
     private static int keyGuardianFinder(CommandContext<FabricClientCommandSource> context) {
         var world = context.getSource().getLevel();
