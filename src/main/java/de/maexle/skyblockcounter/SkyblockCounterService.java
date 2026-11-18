@@ -16,7 +16,6 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.core.BlockPos;
-import de.maexle.skyblockcounter.waypoint.WaypointManager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
@@ -82,6 +81,7 @@ public class SkyblockCounterService {
     private static BlockPos keyGuardianLastSeenPos = null;
     private static boolean keyGuardianAliveDetected = false;
     private static net.minecraft.client.multiplayer.ClientLevel keyGuardianTrackedLevel = null;
+    private static volatile List<BlockPos> keyGuardianChambers = List.of();
 
     public static long sessionStartTime = 0;
 
@@ -123,6 +123,40 @@ public class SkyblockCounterService {
         registerKeyGuardianHudRenderer();
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (client.level != keyGuardianTrackedLevel) {
+                keyGuardianTrackedLevel = client.level;
+                keyGuardianLastSeenTime = 0L;
+                keyGuardianLastSeenPos = null;
+                keyGuardianAliveDetected = false;
+                keyGuardianDeathTime = 0L;
+            }
+
+            if (client.level != null && client.player != null) {
+                Entity guardian = null;
+                for (Entity entity : client.level.entitiesForRendering()) {
+                    if (entity.getCustomName() != null
+                            && entity.getCustomName().getString().toLowerCase(java.util.Locale.ROOT).contains("key guardian")) {
+                        guardian = entity;
+                        break;
+                    }
+                }
+
+                long now = System.currentTimeMillis();
+                if (guardian != null) {
+                    keyGuardianLastSeenTime = now;
+                    keyGuardianLastSeenPos = guardian.blockPosition();
+                    keyGuardianAliveDetected = true;
+                    keyGuardianDeathTime = 0L;
+                } else if (keyGuardianLastSeenTime > 0L && keyGuardianLastSeenPos != null
+                        && isPlayerInsideKeyGuardianChamber(client.player.blockPosition())
+                        && client.player.blockPosition().distSqr(keyGuardianLastSeenPos) <= 32.0 * 32.0
+                        && now - keyGuardianLastSeenTime >= 1500L
+                        && keyGuardianDeathTime == 0L) {
+                    keyGuardianDeathTime = keyGuardianLastSeenTime;
+                    keyGuardianAliveDetected = false;
+                    LOGGER.info("Key Guardian disappeared inside its chamber; starting 90-second respawn timer.");
+                }
+            }
             if (client.level != null) {
                 for (Entity entity : client.level.entitiesForRendering()) {
                     if (entity.getCustomName() != null) {
@@ -227,12 +261,13 @@ public class SkyblockCounterService {
         );
     }
 
+    public static void setKeyGuardianChambers(List<BlockPos> positions) {
+        keyGuardianChambers = positions == null ? List.of() : List.copyOf(positions);
+    }
+
     private static boolean isPlayerInsideKeyGuardianChamber(BlockPos playerPos) {
-        for (WaypointManager.Waypoint waypoint : WaypointManager.getWaypoints()) {
-            if (waypoint.label() != null && waypoint.label().startsWith("Key Guardian Chamber")
-                    && playerPos.distSqr(waypoint.pos()) <= 30.0 * 30.0) {
-                return true;
-            }
+        for (BlockPos chamber : keyGuardianChambers) {
+            if (playerPos.distSqr(chamber) <= 30.0 * 30.0) return true;
         }
         return false;
     }
