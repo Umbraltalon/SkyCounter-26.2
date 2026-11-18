@@ -26,6 +26,8 @@ public class SkyblockCounterCommand {
                 .executes(SkyblockCounterCommand::showSkyCounterConfig)
                 .then(literal("corleone_finder")
                         .executes(SkyblockCounterCommand::corleoneFinder))
+                .then(literal("keyguardian_finder")
+                        .executes(SkyblockCounterCommand::keyGuardianFinder))
                 .then(literal("treasure_hoarder")
                         .executes(SkyblockCounterCommand::switchToTreasureHoarder))
                 .then(literal("corleone")
