@@ -1,6 +1,6 @@
 # SkyCounter
 
-SkyCounter is a client-side Fabric mod for **Minecraft 26.1.2** (Hypixel Skyblock) that tracks mob kills via the Hypixel API and session data. Press `O` to open the config GUI, or `H` to toggle the HUD.
+SkyCounter is a client-side Fabric mod for **Minecraft 26.2+** (Hypixel Skyblock) that tracks mob kills via the Hypixel API and session data. Press `O` to open the config GUI, or `H` to toggle the HUD.
 
 ---
 
@@ -23,6 +23,7 @@ SkyCounter is a client-side Fabric mod for **Minecraft 26.1.2** (Hypixel Skybloc
 
 * `/skycounter` — Opens the config gui.
 * `/skycounter corleone_finder` — Automatically finds all Corleone structures in the loaded chunks.
+* `/skycounter keyguardian_finder` — Searches loaded Crystal Hollows chunks for Key Guardian towers and places waypoints.
 * `/skycounter set_api <API_KEY>` — Sets your Hypixel API key.
 * `/skycounter set_uuid <UUID>` — Sets your un-dashed player UUID.
 
